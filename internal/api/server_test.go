@@ -6,18 +6,41 @@ import (
 	"testing"
 )
 
-func TestUnknownRouteReturnsJSONError(t *testing.T) {
-	rec := httptest.NewRecorder()
-	NewServer().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil))
+const testToken = "test-token"
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+func TestUnknownRouteReturnsJSONError(t *testing.T) {
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil)
+	req.Header.Set(tokenHeader, testToken)
+	rec := httptest.NewRecorder()
+	NewServer(testToken).ServeHTTP(rec, req)
+
+	assertError(t, rec, http.StatusNotFound, "not found")
+}
+
+func assertError(t *testing.T, rec *httptest.ResponseRecorder, status int, message string) {
+	t.Helper()
+	if rec.Code != status {
+		t.Errorf("status = %d, want %d", rec.Code, status)
 	}
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", got)
 	}
-	want := `{"error":true,"message":"not found"}` + "\n"
+	want := `{"error":true,"message":"` + message + `"}` + "\n"
 	if got := rec.Body.String(); got != want {
 		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
+func TestTestRoute(t *testing.T) {
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
+	req.Header.Set(tokenHeader, testToken)
+	rec := httptest.NewRecorder()
+	NewServer(testToken).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if want := `{"status":"ok"}` + "\n"; rec.Body.String() != want {
+		t.Errorf("body = %q, want %q", rec.Body.String(), want)
 	}
 }

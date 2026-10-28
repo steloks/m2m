@@ -1,13 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 )
 
 type Config struct {
-	Port int
+	Port        int
+	DeviceToken string
 }
 
 func Load() (Config, error) {
@@ -18,7 +20,13 @@ func Load() (Config, error) {
 	if port < 1 || port > 65535 {
 		return Config{}, fmt.Errorf("PORT must be between 1 and 65535, got %d", port)
 	}
-	return Config{Port: port}, nil
+
+	token := os.Getenv("DEVICE_TOKEN")
+	if token == "" {
+		return Config{}, errors.New("DEVICE_TOKEN is required")
+	}
+
+	return Config{Port: port, DeviceToken: token}, nil
 }
 
 func intEnv(key string, def int) (int, error) {

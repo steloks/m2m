@@ -17,6 +17,7 @@ func TestLoadPort(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DEVICE_TOKEN", "secret")
 			t.Setenv("PORT", tt.env)
 			cfg, err := Load()
 			if tt.wantErr {
@@ -32,5 +33,23 @@ func TestLoadPort(t *testing.T) {
 				t.Errorf("Port = %d, want %d", cfg.Port, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadDeviceToken(t *testing.T) {
+	t.Setenv("PORT", "")
+
+	t.Setenv("DEVICE_TOKEN", "")
+	if cfg, err := Load(); err == nil {
+		t.Fatalf("Load() = %+v, want error for missing DEVICE_TOKEN", cfg)
+	}
+
+	t.Setenv("DEVICE_TOKEN", "secret")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.DeviceToken != "secret" {
+		t.Errorf("DeviceToken = %q, want %q", cfg.DeviceToken, "secret")
 	}
 }
