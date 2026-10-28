@@ -18,6 +18,7 @@ func NewServer(deviceToken string) *Server {
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /test", s.handleTest)
+	s.mux.HandleFunc("POST /devices/{id}/events", s.handleRecordEvent)
 	s.mux.HandleFunc("/", s.handleNotFound)
 }
 
