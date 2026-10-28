@@ -18,6 +18,7 @@ func TestLoadPort(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv("DEVICE_TOKEN", "secret")
+			t.Setenv("DATABASE_URL", "postgres://localhost/test")
 			t.Setenv("PORT", tt.env)
 			cfg, err := Load()
 			if tt.wantErr {
@@ -45,6 +46,7 @@ func TestLoadDeviceToken(t *testing.T) {
 	}
 
 	t.Setenv("DEVICE_TOKEN", "secret")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)

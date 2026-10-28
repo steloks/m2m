@@ -13,6 +13,7 @@ import (
 
 	"github.com/steloks/m2m/internal/api"
 	"github.com/steloks/m2m/internal/config"
+	"github.com/steloks/m2m/internal/store"
 )
 
 // shutdownTimeout bounds how long in-flight requests get to finish on SIGTERM.
@@ -36,6 +37,12 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	st, err := store.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),

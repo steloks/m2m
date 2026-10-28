@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Port        int
 	DeviceToken string
+	DatabaseURL string
 }
 
 func Load() (Config, error) {
@@ -26,7 +27,12 @@ func Load() (Config, error) {
 		return Config{}, errors.New("DEVICE_TOKEN is required")
 	}
 
-	return Config{Port: port, DeviceToken: token}, nil
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return Config{}, errors.New("DATABASE_URL is required")
+	}
+
+	return Config{Port: port, DeviceToken: token, DatabaseURL: dbURL}, nil
 }
 
 func intEnv(key string, def int) (int, error) {
