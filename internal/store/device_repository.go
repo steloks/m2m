@@ -3,8 +3,6 @@ package store
 import (
 	"context"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Device struct {
@@ -13,17 +11,17 @@ type Device struct {
 }
 
 type DeviceRepository struct {
-	pool *pgxpool.Pool
+	db DBTX
 }
 
-func NewDeviceRepository(s *Store) *DeviceRepository {
-	return &DeviceRepository{pool: s.pool}
+func NewDeviceRepository(db DBTX) *DeviceRepository {
+	return &DeviceRepository{db: db}
 }
 
 // Create adds the device and reports whether it was new. A device that already
 // exists is left unchanged.
 func (r *DeviceRepository) Create(ctx context.Context, d Device) (bool, error) {
-	tag, err := r.pool.Exec(ctx,
+	tag, err := r.db.Exec(ctx,
 		`INSERT INTO devices (device_id, last_seen_at) VALUES ($1, $2)
 		 ON CONFLICT (device_id) DO NOTHING`,
 		d.ID, d.LastSeenAt)

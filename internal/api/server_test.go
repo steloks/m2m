@@ -12,7 +12,7 @@ func TestUnknownRouteReturnsJSONError(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil)
 	req.Header.Set(tokenHeader, testToken)
 	rec := httptest.NewRecorder()
-	NewServer(testToken).ServeHTTP(rec, req)
+	NewServer(testToken, nil).ServeHTTP(rec, req)
 
 	assertError(t, rec, http.StatusNotFound, "not found")
 }
@@ -35,7 +35,7 @@ func TestTestRoute(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set(tokenHeader, testToken)
 	rec := httptest.NewRecorder()
-	NewServer(testToken).ServeHTTP(rec, req)
+	NewServer(testToken, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
