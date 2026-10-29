@@ -10,6 +10,7 @@ import (
 type DBTX interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type Repository struct {
@@ -37,8 +38,28 @@ func (r *Repository) Create(ctx context.Context, e Event) (bool, error) {
 func (r *Repository) Get(ctx context.Context, deviceID, eventID string) (Event, error) {
 	stored := Event{DeviceID: deviceID}
 	err := r.db.QueryRow(ctx,
-		`SELECT event_id, type, occurred_at, payload, received_at
+		`SELECT seq, event_id, type, occurred_at, payload, received_at
 		 FROM events WHERE device_id = $1 AND event_id = $2`,
-		deviceID, eventID).Scan(&stored.EventID, &stored.Type, &stored.OccurredAt, &stored.Payload, &stored.ReceivedAt)
+		deviceID, eventID).Scan(&stored.Seq, &stored.EventID, &stored.Type, &stored.OccurredAt, &stored.Payload, &stored.ReceivedAt)
 	return stored, err
+}
+
+// List returns up to limit of the device's events that come after the given
+// position, oldest first.
+func (r *Repository) List(ctx context.Context, deviceID string, after Position, limit int) ([]Event, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT seq, event_id, type, occurred_at, payload, received_at
+		 FROM events
+		 WHERE device_id = $1 AND (occurred_at, seq) > ($2, $3)
+		 ORDER BY occurred_at, seq
+		 LIMIT $4`,
+		deviceID, after.OccurredAt, after.Seq, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Event, error) {
+		stored := Event{DeviceID: deviceID}
+		err := row.Scan(&stored.Seq, &stored.EventID, &stored.Type, &stored.OccurredAt, &stored.Payload, &stored.ReceivedAt)
+		return stored, err
+	})
 }

@@ -40,6 +40,19 @@ func (s *Store) ListDevices(ctx context.Context, status string, now time.Time, o
 	return device.NewRepository(s.pool).List(ctx, status, now, offlineThreshold)
 }
 
+// ListEvents returns up to limit of the device's events after the given
+// position, oldest first, or device.ErrNotFound for an unknown device.
+func (s *Store) ListEvents(ctx context.Context, deviceID string, after event.Position, limit int) ([]event.Event, error) {
+	events, err := event.NewRepository(s.pool).List(ctx, deviceID, after, limit)
+	if err != nil || len(events) > 0 {
+		return events, err
+	}
+	if _, err := device.NewRepository(s.pool).Get(ctx, deviceID); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
 // RecordEvent creates the device if needed, stores the event and, if the event
 // is new, applies it to the device's state, in one transaction. It returns the
 // stored event and reports whether it was new.

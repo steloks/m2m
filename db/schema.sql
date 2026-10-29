@@ -18,3 +18,5 @@ CREATE TABLE events (
     received_at timestamptz NOT NULL,
     UNIQUE (device_id, event_id)
 );
+
+CREATE INDEX events_history_idx ON events (device_id, occurred_at, seq);

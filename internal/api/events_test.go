@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -370,5 +372,221 @@ func TestRecordEventSameEventIDOnTwoDevices(t *testing.T) {
 		if count := countEvents(t, conn, deviceID); count != 1 {
 			t.Errorf("device %s: stored events = %d, want 1", deviceID, count)
 		}
+	}
+}
+
+func getHistory(t *testing.T, server *Server, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	request.Header.Set(tokenHeader, testToken)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, request)
+	return recorder
+}
+
+type historyPage struct {
+	Events []struct {
+		EventID string `json:"event_id"`
+	} `json:"events"`
+	Next *string `json:"next"`
+}
+
+func getHistoryPage(t *testing.T, server *Server, target string) historyPage {
+	t.Helper()
+	recorder := getHistory(t, server, target)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET %s status = %d, want %d, body %s", target, recorder.Code, http.StatusOK, recorder.Body)
+	}
+	var page historyPage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return page
+}
+
+// walkHistory follows next from target until the last page, and returns the
+// event IDs in order and the size of each page.
+func walkHistory(t *testing.T, server *Server, target string) ([]string, []int) {
+	t.Helper()
+	var eventIDs []string
+	var pageSizes []int
+	for {
+		page := getHistoryPage(t, server, target)
+		pageSizes = append(pageSizes, len(page.Events))
+		for _, listed := range page.Events {
+			eventIDs = append(eventIDs, listed.EventID)
+		}
+		if page.Next == nil {
+			return eventIDs, pageSizes
+		}
+		target = *page.Next
+	}
+}
+
+func historyEventID(n int) string {
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
+}
+
+// postHistory posts a heartbeat for each occurred_at, with event IDs 1, 2, ...
+func postHistory(t *testing.T, server *Server, deviceID string, occurredAts ...string) {
+	t.Helper()
+	for index, occurredAt := range occurredAts {
+		body := eventWith(map[string]string{
+			"event_id":    `"` + historyEventID(index+1) + `"`,
+			"type":        `"heartbeat"`,
+			"occurred_at": `"` + occurredAt + `"`,
+			"payload":     `{"battery_pct":87}`,
+		})
+		if recorder := postEvent(t, server, deviceID, body); recorder.Code != http.StatusCreated {
+			t.Fatalf("post status = %d, want %d, body %s", recorder.Code, http.StatusCreated, recorder.Body)
+		}
+	}
+}
+
+func TestHistoryRejectsBadQueries(t *testing.T) {
+	const (
+		badLimit  = "limit must be an integer between 1 and 500"
+		badSince  = "since must be an ISO 8601 timestamp with a time zone, e.g. 2026-09-29T14:00:00Z"
+		badCursor = "cursor is invalid"
+	)
+	tests := []struct {
+		query string
+		want  string
+	}{
+		{query: "limit=0", want: badLimit},
+		{query: "limit=-1", want: badLimit},
+		{query: "limit=501", want: badLimit},
+		{query: "limit=ten", want: badLimit},
+		{query: "limit=", want: badLimit},
+		{query: "since=yesterday", want: badSince},
+		{query: "since=2026-09-29", want: badSince},
+		{query: "since=2026-09-29T14:00:00", want: badSince},
+		{query: "since=", want: badSince},
+		{query: "cursor=not*base64", want: badCursor},
+		{query: "cursor=" + base64.RawURLEncoding.EncodeToString([]byte("2026-09-29T14:00:00Z")), want: badCursor},
+		{query: "cursor=" + base64.RawURLEncoding.EncodeToString([]byte("2026-09-29T14:00:00Z,x")), want: badCursor},
+		{query: "cursor=" + base64.RawURLEncoding.EncodeToString([]byte("today,3")), want: badCursor},
+		{query: "since=2026-09-29T14:00:00Z&cursor=abc", want: "since and cursor cannot be used together"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.query, func(t *testing.T) {
+			recorder := getHistory(t, NewServer(testToken, testOfflineThreshold, nil), "/devices/panel-0042/events?"+testCase.query)
+			assertError(t, recorder, http.StatusBadRequest, testCase.want)
+		})
+	}
+}
+
+func TestHistoryUnknownDevice(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+
+	assertError(t, getHistory(t, server, "/devices/"+newDeviceID(t, conn)+"/events"), http.StatusNotFound, "device not found")
+}
+
+func TestHistoryPageBody(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+	postHistory(t, server, deviceID, "2026-09-29T14:00:00Z", "2026-09-29T14:01:00Z")
+
+	recorder := getHistory(t, server, "/devices/"+deviceID+"/events?limit=1")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body %s", recorder.Code, http.StatusOK, recorder.Body)
+	}
+	var page struct {
+		Events []map[string]any `json:"events"`
+		Next   *string          `json:"next"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	want := []map[string]any{{
+		"event_id":    historyEventID(1),
+		"type":        "heartbeat",
+		"occurred_at": "2026-09-29T14:00:00Z",
+		"payload":     map[string]any{"battery_pct": float64(87)},
+	}}
+	if fmt.Sprint(page.Events) != fmt.Sprint(want) {
+		t.Errorf("events = %v, want %v", page.Events, want)
+	}
+	if page.Next == nil || !strings.HasPrefix(*page.Next, "/devices/"+deviceID+"/events?cursor=") {
+		t.Errorf("next = %v, want a URL for the next page", page.Next)
+	}
+}
+
+func TestHistoryWalksEveryEventOnce(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+	// Events 2 and 3 occurred at the same time, and event 5 occurred before
+	// event 4 although it arrived after it.
+	postHistory(t, server, deviceID,
+		"2026-09-29T14:00:00Z",
+		"2026-09-29T14:01:00Z",
+		"2026-09-29T14:01:00Z",
+		"2026-09-29T14:03:00Z",
+		"2026-09-29T14:02:00Z",
+	)
+
+	tests := []struct {
+		name          string
+		query         string
+		wantEvents    []int
+		wantPageSizes []int
+	}{
+		{name: "pages of 2", query: "?limit=2", wantEvents: []int{1, 2, 3, 5, 4}, wantPageSizes: []int{2, 2, 1}},
+		{name: "page boundary between equal times", query: "?limit=1", wantEvents: []int{1, 2, 3, 5, 4}, wantPageSizes: []int{1, 1, 1, 1, 1}},
+		{name: "one page", query: "", wantEvents: []int{1, 2, 3, 5, 4}, wantPageSizes: []int{5}},
+		{name: "exactly one full page", query: "?limit=5", wantEvents: []int{1, 2, 3, 5, 4}, wantPageSizes: []int{5}},
+		{name: "since includes events at that time", query: "?since=2026-09-29T14:01:00Z&limit=2", wantEvents: []int{2, 3, 5, 4}, wantPageSizes: []int{2, 2}},
+		{name: "since between events", query: "?since=2026-09-29T14:01:30Z", wantEvents: []int{5, 4}, wantPageSizes: []int{2}},
+		{name: "since with offset", query: "?since=2026-09-29T17:01:30%2B03:00", wantEvents: []int{5, 4}, wantPageSizes: []int{2}},
+		{name: "since after every event", query: "?since=2026-09-30T00:00:00Z", wantEvents: nil, wantPageSizes: []int{0}},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			eventIDs, pageSizes := walkHistory(t, server, "/devices/"+deviceID+"/events"+testCase.query)
+			var wantIDs []string
+			for _, n := range testCase.wantEvents {
+				wantIDs = append(wantIDs, historyEventID(n))
+			}
+			if !slices.Equal(eventIDs, wantIDs) {
+				t.Errorf("events = %v, want %v", eventIDs, wantIDs)
+			}
+			if !slices.Equal(pageSizes, testCase.wantPageSizes) {
+				t.Errorf("page sizes = %v, want %v", pageSizes, testCase.wantPageSizes)
+			}
+		})
+	}
+}
+
+func TestHistoryDefaultLimit(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+	occurredAts := make([]string, defaultHistoryLimit+1)
+	for index := range occurredAts {
+		occurredAts[index] = fmt.Sprintf("2026-09-29T14:%02d:00Z", index)
+	}
+	postHistory(t, server, deviceID, occurredAts...)
+
+	_, pageSizes := walkHistory(t, server, "/devices/"+deviceID+"/events")
+	if want := []int{defaultHistoryLimit, 1}; !slices.Equal(pageSizes, want) {
+		t.Errorf("page sizes = %v, want %v", pageSizes, want)
+	}
+}
+
+func TestHistoryEmptyPage(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+	postHistory(t, server, deviceID, "2026-09-29T14:00:00Z")
+
+	recorder := getHistory(t, server, "/devices/"+deviceID+"/events?since=2026-09-30T00:00:00Z")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if want := `{"events":[],"next":null}` + "\n"; recorder.Body.String() != want {
+		t.Errorf("body = %s, want %s", recorder.Body, want)
 	}
 }
