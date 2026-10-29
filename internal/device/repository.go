@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -11,6 +12,7 @@ import (
 type DBTX interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 type Repository struct {
@@ -45,6 +47,31 @@ func (r *Repository) Get(ctx context.Context, deviceID string) (Device, error) {
 // so concurrent events for the same device are applied one at a time.
 func (r *Repository) GetForUpdate(ctx context.Context, deviceID string) (Device, error) {
 	return r.get(ctx, selectDevice+` FOR UPDATE`, deviceID)
+}
+
+// List returns the devices with the given status, or every device when status
+// is empty, sorted by ID. Only ID and LastSeenAt are filled in. It uses the
+// same rule as Status: offline once more than offlineThreshold has passed.
+func (r *Repository) List(ctx context.Context, status string, now time.Time, offlineThreshold time.Duration) ([]Device, error) {
+	query := `SELECT device_id, last_seen_at FROM devices`
+	var args []any
+	switch status {
+	case StatusOffline:
+		query += ` WHERE last_seen_at < $1`
+		args = append(args, now.Add(-offlineThreshold))
+	case StatusOnline:
+		query += ` WHERE last_seen_at >= $1`
+		args = append(args, now.Add(-offlineThreshold))
+	}
+	rows, err := r.db.Query(ctx, query+` ORDER BY device_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (Device, error) {
+		var device Device
+		err := row.Scan(&device.ID, &device.LastSeenAt)
+		return device, err
+	})
 }
 
 func (r *Repository) get(ctx context.Context, query, deviceID string) (Device, error) {

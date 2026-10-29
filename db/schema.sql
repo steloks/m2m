@@ -6,6 +6,8 @@ CREATE TABLE devices (
     open_sensors smallint[] NOT NULL DEFAULT '{}'
 );
 
+CREATE INDEX devices_last_seen_at_idx ON devices (last_seen_at);
+
 CREATE TABLE events (
     seq         bigserial PRIMARY KEY,
     device_id   text NOT NULL REFERENCES devices (device_id),

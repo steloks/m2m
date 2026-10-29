@@ -12,6 +12,7 @@ import (
 type Store interface {
 	RecordEvent(ctx context.Context, received event.Event) (event.Event, bool, error)
 	GetDevice(ctx context.Context, deviceID string) (device.Device, error)
+	ListDevices(ctx context.Context, status string, now time.Time, offlineThreshold time.Duration) ([]device.Device, error)
 }
 
 type Server struct {
@@ -31,6 +32,7 @@ func NewServer(deviceToken string, offlineThreshold time.Duration, st Store) *Se
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /test", s.handleTest)
+	s.mux.HandleFunc("GET /devices", s.handleListDevices)
 	s.mux.HandleFunc("GET /devices/{id}", s.handleGetDevice)
 	s.mux.HandleFunc("POST /devices/{id}/events", s.handleRecordEvent)
 	s.mux.HandleFunc("/", s.handleNotFound)

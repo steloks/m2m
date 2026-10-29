@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,6 +34,10 @@ func (s *Store) Close() {
 
 func (s *Store) GetDevice(ctx context.Context, deviceID string) (device.Device, error) {
 	return device.NewRepository(s.pool).Get(ctx, deviceID)
+}
+
+func (s *Store) ListDevices(ctx context.Context, status string, now time.Time, offlineThreshold time.Duration) ([]device.Device, error) {
+	return device.NewRepository(s.pool).List(ctx, status, now, offlineThreshold)
 }
 
 // RecordEvent creates the device if needed, stores the event and, if the event
