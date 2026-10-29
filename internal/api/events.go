@@ -63,6 +63,9 @@ func (server *Server) handleRecordEvent(writer http.ResponseWriter, request *htt
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
+		server.metrics.eventsIngested.Inc()
+	} else {
+		server.metrics.eventsDuplicate.Inc()
 	}
 	writeJSON(writer, status, eventResponse{
 		DeviceID:   stored.DeviceID,

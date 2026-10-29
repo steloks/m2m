@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/steloks/m2m/internal/store"
 )
@@ -234,6 +235,12 @@ func TestRecordEventDuplicateStoresOnce(t *testing.T) {
 	}
 	if count := countEvents(t, conn, deviceID); count != 1 {
 		t.Errorf("stored events = %d, want 1", count)
+	}
+	if ingested := testutil.ToFloat64(server.metrics.eventsIngested); ingested != 1 {
+		t.Errorf("events_ingested_total = %v, want 1", ingested)
+	}
+	if duplicates := testutil.ToFloat64(server.metrics.eventsDuplicate); duplicates != 1 {
+		t.Errorf("events_duplicate_total = %v, want 1", duplicates)
 	}
 }
 

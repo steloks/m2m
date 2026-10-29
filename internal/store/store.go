@@ -85,3 +85,7 @@ func (s *Store) RecordEvent(ctx context.Context, received event.Event) (event.Ev
 	})
 	return stored, created, err
 }
+
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}

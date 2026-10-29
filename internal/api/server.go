@@ -14,38 +14,43 @@ type Store interface {
 	GetDevice(ctx context.Context, deviceID string) (device.Device, error)
 	ListDevices(ctx context.Context, status string, now time.Time, offlineThreshold time.Duration) ([]device.Device, error)
 	ListEvents(ctx context.Context, deviceID string, after event.Position, limit int) ([]event.Event, error)
+	Ping(ctx context.Context) error
 }
 
 type Server struct {
-	mux              *http.ServeMux
 	handler          http.Handler
 	store            Store
 	now              func() time.Time
 	offlineThreshold time.Duration
+	metrics          *metrics
 }
 
 func NewServer(deviceToken string, offlineThreshold time.Duration, st Store) *Server {
-	s := &Server{mux: http.NewServeMux(), store: st, now: time.Now, offlineThreshold: offlineThreshold}
-	s.routes()
-	s.handler = requireToken(deviceToken, s.mux)
+	s := &Server{store: st, now: time.Now, offlineThreshold: offlineThreshold, metrics: newMetrics()}
+	s.handler = s.metrics.instrument(s.routes(deviceToken))
 	return s
 }
 
-func (s *Server) routes() {
-	s.mux.HandleFunc("GET /test", s.handleTest)
-	s.mux.HandleFunc("GET /devices", s.handleListDevices)
-	s.mux.HandleFunc("GET /devices/{id}", s.handleGetDevice)
-	s.mux.HandleFunc("GET /devices/{id}/events", s.handleListEvents)
-	s.mux.HandleFunc("POST /devices/{id}/events", s.handleRecordEvent)
-	s.mux.HandleFunc("/", s.handleNotFound)
+func (s *Server) routes(deviceToken string) http.Handler {
+	// Routes that need the X-Device-Token header.
+	protected := http.NewServeMux()
+	protected.HandleFunc("GET /devices", s.handleListDevices)
+	protected.HandleFunc("GET /devices/{id}", s.handleGetDevice)
+	protected.HandleFunc("GET /devices/{id}/events", s.handleListEvents)
+	protected.HandleFunc("POST /devices/{id}/events", s.handleRecordEvent)
+	protected.HandleFunc("/", s.handleNotFound)
+
+	// Routes open to everyone, for health checks and metric scrapers. Every
+	// other path goes on to the protected routes, through the token check.
+	public := http.NewServeMux()
+	public.HandleFunc("GET /health", s.handleHealth)
+	public.Handle("GET /metrics", s.metrics.handler())
+	public.Handle("/", requireToken(deviceToken, protected))
+	return public
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
-}
-
-func (s *Server) handleTest(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleNotFound(w http.ResponseWriter, _ *http.Request) {
