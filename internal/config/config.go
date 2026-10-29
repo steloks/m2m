@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
-	Port        int
-	DeviceToken string
-	DatabaseURL string
+	Port             int
+	DeviceToken      string
+	DatabaseURL      string
+	OfflineThreshold time.Duration
 }
 
 func Load() (Config, error) {
@@ -32,7 +34,27 @@ func Load() (Config, error) {
 		return Config{}, errors.New("DATABASE_URL is required")
 	}
 
-	return Config{Port: port, DeviceToken: token, DatabaseURL: dbURL}, nil
+	offlineThreshold, err := durationEnv("OFFLINE_THRESHOLD", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	if offlineThreshold <= 0 {
+		return Config{}, fmt.Errorf("OFFLINE_THRESHOLD must be positive, got %s", offlineThreshold)
+	}
+
+	return Config{Port: port, DeviceToken: token, DatabaseURL: dbURL, OfflineThreshold: offlineThreshold}, nil
+}
+
+func durationEnv(key string, def time.Duration) (time.Duration, error) {
+	value, ok := os.LookupEnv(key)
+	if !ok || value == "" {
+		return def, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a duration such as 5m or 90s, got %q", key, value)
+	}
+	return duration, nil
 }
 
 func intEnv(key string, def int) (int, error) {

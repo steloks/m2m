@@ -46,7 +46,7 @@ func TestRequireToken(t *testing.T) {
 func TestServerChecksTokenBeforeRouting(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil)
 	rec := httptest.NewRecorder()
-	NewServer(testToken, nil).ServeHTTP(rec, req)
+	NewServer(testToken, testOfflineThreshold, nil).ServeHTTP(rec, req)
 
 	assertError(t, rec, http.StatusUnauthorized, "missing or invalid X-Device-Token")
 }

@@ -101,6 +101,30 @@ func TestApply(t *testing.T) {
 	}
 }
 
+func TestStatus(t *testing.T) {
+	device := Device{LastSeenAt: receivedAt}
+	threshold := 5 * time.Minute
+
+	tests := []struct {
+		name  string
+		since time.Duration
+		want  string
+	}{
+		{name: "just seen", since: 0, want: "online"},
+		{name: "4m30s ago", since: 4*time.Minute + 30*time.Second, want: "online"},
+		{name: "exactly at threshold", since: threshold, want: "online"},
+		{name: "just over threshold", since: threshold + time.Nanosecond, want: "offline"},
+		{name: "5m30s ago", since: 5*time.Minute + 30*time.Second, want: "offline"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := device.Status(receivedAt.Add(testCase.since), threshold); got != testCase.want {
+				t.Errorf("Status = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestApplyRejectsInvalidPayload(t *testing.T) {
 	device := Device{ArmState: "disarmed"}
 	if err := device.Apply(event.Event{Type: "armed", Payload: []byte(`not json`), ReceivedAt: receivedAt}); err == nil {

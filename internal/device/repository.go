@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -33,14 +34,26 @@ func (r *Repository) Create(ctx context.Context, d Device) (bool, error) {
 	return tag.RowsAffected() == 1, nil
 }
 
+const selectDevice = `SELECT last_seen_at, arm_state, arm_mode, open_sensors FROM devices WHERE device_id = $1`
+
+// Get returns ErrNotFound for a device that has never sent an event.
+func (r *Repository) Get(ctx context.Context, deviceID string) (Device, error) {
+	return r.get(ctx, selectDevice, deviceID)
+}
+
 // GetForUpdate reads the device and locks its row until the transaction ends,
 // so concurrent events for the same device are applied one at a time.
 func (r *Repository) GetForUpdate(ctx context.Context, deviceID string) (Device, error) {
+	return r.get(ctx, selectDevice+` FOR UPDATE`, deviceID)
+}
+
+func (r *Repository) get(ctx context.Context, query, deviceID string) (Device, error) {
 	device := Device{ID: deviceID}
-	err := r.db.QueryRow(ctx,
-		`SELECT last_seen_at, arm_state, arm_mode, open_sensors
-		 FROM devices WHERE device_id = $1 FOR UPDATE`,
-		deviceID).Scan(&device.LastSeenAt, &device.ArmState, &device.ArmMode, &device.OpenSensors)
+	err := r.db.QueryRow(ctx, query, deviceID).
+		Scan(&device.LastSeenAt, &device.ArmState, &device.ArmMode, &device.OpenSensors)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Device{}, ErrNotFound
+	}
 	return device, err
 }
 

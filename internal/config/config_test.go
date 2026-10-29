@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestLoadPort(t *testing.T) {
 	tests := []struct {
@@ -53,5 +56,41 @@ func TestLoadDeviceToken(t *testing.T) {
 	}
 	if cfg.DeviceToken != "secret" {
 		t.Errorf("DeviceToken = %q, want %q", cfg.DeviceToken, "secret")
+	}
+}
+
+func TestLoadOfflineThreshold(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		want    time.Duration
+		wantErr bool
+	}{
+		{name: "default", env: "", want: 5 * time.Minute},
+		{name: "custom", env: "90s", want: 90 * time.Second},
+		{name: "not a duration", env: "5", wantErr: true},
+		{name: "zero", env: "0s", wantErr: true},
+		{name: "negative", env: "-1m", wantErr: true},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("PORT", "")
+			t.Setenv("DEVICE_TOKEN", "secret")
+			t.Setenv("DATABASE_URL", "postgres://localhost/test")
+			t.Setenv("OFFLINE_THRESHOLD", testCase.env)
+			cfg, err := Load()
+			if testCase.wantErr {
+				if err == nil {
+					t.Fatalf("Load() = %+v, want error", cfg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if cfg.OfflineThreshold != testCase.want {
+				t.Errorf("OfflineThreshold = %s, want %s", cfg.OfflineThreshold, testCase.want)
+			}
+		})
 	}
 }

@@ -4,15 +4,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
-const testToken = "test-token"
+const (
+	testToken            = "test-token"
+	testOfflineThreshold = 5 * time.Minute
+)
 
 func TestUnknownRouteReturnsJSONError(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/nope", nil)
 	req.Header.Set(tokenHeader, testToken)
 	rec := httptest.NewRecorder()
-	NewServer(testToken, nil).ServeHTTP(rec, req)
+	NewServer(testToken, testOfflineThreshold, nil).ServeHTTP(rec, req)
 
 	assertError(t, rec, http.StatusNotFound, "not found")
 }
@@ -35,7 +39,7 @@ func TestTestRoute(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
 	req.Header.Set(tokenHeader, testToken)
 	rec := httptest.NewRecorder()
-	NewServer(testToken, nil).ServeHTTP(rec, req)
+	NewServer(testToken, testOfflineThreshold, nil).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)

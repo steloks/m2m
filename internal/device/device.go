@@ -2,6 +2,7 @@ package device
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -15,6 +16,17 @@ type Device struct {
 	ArmState    string
 	ArmMode     *string
 	OpenSensors []int
+}
+
+var ErrNotFound = errors.New("device not found")
+
+// Status reports offline once more than offlineThreshold has passed since the
+// device was last seen, and online otherwise.
+func (device Device) Status(now time.Time, offlineThreshold time.Duration) string {
+	if now.Sub(device.LastSeenAt) > offlineThreshold {
+		return "offline"
+	}
+	return "online"
 }
 
 type eventPayload struct {

@@ -46,7 +46,7 @@ func (server *Server) handleRecordEvent(writer http.ResponseWriter, request *htt
 		Type:       req.Type,
 		OccurredAt: occurredAt,
 		Payload:    req.Payload,
-		ReceivedAt: time.Now(),
+		ReceivedAt: server.now(),
 	})
 	if err != nil {
 		slog.Error("record event", "device_id", deviceID, "event_id", req.EventID, "err", err)

@@ -31,6 +31,10 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+func (s *Store) GetDevice(ctx context.Context, deviceID string) (device.Device, error) {
+	return device.NewRepository(s.pool).Get(ctx, deviceID)
+}
+
 // RecordEvent creates the device if needed, stores the event and, if the event
 // is new, applies it to the device's state, in one transaction. It returns the
 // stored event and reports whether it was new.

@@ -101,7 +101,7 @@ func TestRecordEventRejectsBadRequests(t *testing.T) {
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			recorder := postEvent(t, NewServer(testToken, nil), "panel-0042", testCase.body)
+			recorder := postEvent(t, NewServer(testToken, testOfflineThreshold, nil), "panel-0042", testCase.body)
 			assertError(t, recorder, http.StatusBadRequest, testCase.want)
 		})
 	}
@@ -155,7 +155,7 @@ func TestRecordEventCreatesEvent(t *testing.T) {
 	testStore, conn := newTestStore(t)
 	deviceID := newDeviceID(t, conn)
 
-	recorder := postEvent(t, NewServer(testToken, testStore), deviceID, eventBody)
+	recorder := postEvent(t, NewServer(testToken, testOfflineThreshold, testStore), deviceID, eventBody)
 
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d, body %s", recorder.Code, http.StatusCreated, recorder.Body)
@@ -189,7 +189,7 @@ func TestRecordEventCreatesEvent(t *testing.T) {
 
 func TestRecordEventAcceptsValidEvents(t *testing.T) {
 	testStore, conn := newTestStore(t)
-	server := NewServer(testToken, testStore)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
 
 	tests := []struct {
 		name    string
@@ -222,7 +222,7 @@ func TestRecordEventAcceptsValidEvents(t *testing.T) {
 func TestRecordEventDuplicateStoresOnce(t *testing.T) {
 	testStore, conn := newTestStore(t)
 	deviceID := newDeviceID(t, conn)
-	server := NewServer(testToken, testStore)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
 
 	if code := postEvent(t, server, deviceID, eventBody).Code; code != http.StatusCreated {
 		t.Fatalf("first status = %d, want %d", code, http.StatusCreated)
@@ -235,10 +235,36 @@ func TestRecordEventDuplicateStoresOnce(t *testing.T) {
 	}
 }
 
+func TestRecordEventSetsLastSeenToServerTime(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+	serverTime := time.Date(2026, 9, 29, 14, 2, 0, 0, time.UTC)
+	server.now = func() time.Time { return serverTime }
+
+	firstSeen := serverTime
+
+	body := eventWith(map[string]string{"occurred_at": `"2026-09-29T09:00:00Z"`})
+	if code := postEvent(t, server, deviceID, body).Code; code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d", code, http.StatusCreated)
+	}
+	if lastSeen := readDevice(t, conn, deviceID).lastSeenAt; !lastSeen.Equal(firstSeen) {
+		t.Errorf("last_seen_at = %v, want %v", lastSeen, firstSeen)
+	}
+
+	serverTime = serverTime.Add(5 * time.Second)
+	if code := postEvent(t, server, deviceID, body).Code; code != http.StatusOK {
+		t.Fatalf("retry status = %d, want %d", code, http.StatusOK)
+	}
+	if lastSeen := readDevice(t, conn, deviceID).lastSeenAt; !lastSeen.Equal(firstSeen) {
+		t.Errorf("retry moved last_seen_at from %v to %v", firstSeen, lastSeen)
+	}
+}
+
 func TestRecordEventDuplicateReturnsStoredEvent(t *testing.T) {
 	testStore, conn := newTestStore(t)
 	deviceID := newDeviceID(t, conn)
-	server := NewServer(testToken, testStore)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
 
 	if code := postEvent(t, server, deviceID, eventBody).Code; code != http.StatusCreated {
 		t.Fatalf("first status = %d, want %d", code, http.StatusCreated)
@@ -294,7 +320,7 @@ func readDevice(t *testing.T, conn *pgx.Conn, deviceID string) deviceRow {
 func TestRecordEventUpdatesDeviceState(t *testing.T) {
 	testStore, conn := newTestStore(t)
 	deviceID := newDeviceID(t, conn)
-	server := NewServer(testToken, testStore)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
 
 	events := []map[string]string{
 		{"event_id": `"a1a1a1a1-0000-4000-8000-000000000001"`, "type": `"armed"`, "payload": `{"mode":"away","user_id":3}`},
@@ -335,7 +361,7 @@ func TestRecordEventUpdatesDeviceState(t *testing.T) {
 
 func TestRecordEventSameEventIDOnTwoDevices(t *testing.T) {
 	testStore, conn := newTestStore(t)
-	server := NewServer(testToken, testStore)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
 
 	for _, deviceID := range []string{newDeviceID(t, conn), newDeviceID(t, conn)} {
 		if code := postEvent(t, server, deviceID, eventBody).Code; code != http.StatusCreated {
