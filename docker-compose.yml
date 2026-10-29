@@ -1,4 +1,17 @@
 services:
+  app:
+    build: .
+    environment:
+      PORT: "8080"
+      DEVICE_TOKEN: ${DEVICE_TOKEN:-dev-shared-token}
+      DATABASE_URL: postgres://m2m:m2m@db:5432/m2m?sslmode=disable
+      OFFLINE_THRESHOLD: ${OFFLINE_THRESHOLD:-5m}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:17-alpine
     environment:
