@@ -58,7 +58,7 @@ func (server *Server) handleListDevices(writer http.ResponseWriter, request *htt
 func (server *Server) handleGetDevice(writer http.ResponseWriter, request *http.Request) {
 	deviceID := request.PathValue("id")
 
-	found, err := server.store.GetDevice(request.Context(), deviceID)
+	found, _ := server.store.GetDevice(request.Context(), deviceID)
 	if errors.Is(err, device.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, "device not found")
 		return
