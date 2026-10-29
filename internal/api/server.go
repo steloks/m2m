@@ -4,11 +4,11 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/steloks/m2m/internal/store"
+	"github.com/steloks/m2m/internal/event"
 )
 
 type Store interface {
-	RecordEvent(ctx context.Context, event store.Event) (bool, error)
+	RecordEvent(ctx context.Context, received event.Event) (bool, error)
 }
 
 type Server struct {

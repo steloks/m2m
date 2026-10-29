@@ -235,6 +235,67 @@ func TestRecordEventDuplicateStoresOnce(t *testing.T) {
 	}
 }
 
+type deviceRow struct {
+	lastSeenAt  time.Time
+	armState    string
+	armMode     *string
+	openSensors []int
+}
+
+func readDevice(t *testing.T, conn *pgx.Conn, deviceID string) deviceRow {
+	t.Helper()
+	var row deviceRow
+	err := conn.QueryRow(t.Context(),
+		`SELECT last_seen_at, arm_state, arm_mode, open_sensors FROM devices WHERE device_id = $1`,
+		deviceID).Scan(&row.lastSeenAt, &row.armState, &row.armMode, &row.openSensors)
+	if err != nil {
+		t.Fatalf("read device: %v", err)
+	}
+	return row
+}
+
+func TestRecordEventUpdatesDeviceState(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testStore)
+
+	events := []map[string]string{
+		{"event_id": `"a1a1a1a1-0000-4000-8000-000000000001"`, "type": `"armed"`, "payload": `{"mode":"away","user_id":3}`},
+		{"event_id": `"a1a1a1a1-0000-4000-8000-000000000002"`, "payload": `{"sensor_id":7}`},
+		{"event_id": `"a1a1a1a1-0000-4000-8000-000000000003"`, "payload": `{"sensor_id":4}`},
+		{"event_id": `"a1a1a1a1-0000-4000-8000-000000000004"`, "payload": `{"sensor_id":9}`},
+		{"event_id": `"a1a1a1a1-0000-4000-8000-000000000005"`, "type": `"sensor_closed"`, "payload": `{"sensor_id":9}`},
+	}
+	for _, changes := range events {
+		if recorder := postEvent(t, server, deviceID, eventWith(changes)); recorder.Code != http.StatusCreated {
+			t.Fatalf("status = %d, want %d, body %s", recorder.Code, http.StatusCreated, recorder.Body)
+		}
+	}
+
+	got := readDevice(t, conn, deviceID)
+	if got.armState != "armed" || got.armMode == nil || *got.armMode != "away" {
+		t.Errorf("arm = %s/%v, want armed/away", got.armState, got.armMode)
+	}
+	if fmt.Sprint(got.openSensors) != "[4 7]" {
+		t.Errorf("open sensors = %v, want [4 7]", got.openSensors)
+	}
+
+	if code := postEvent(t, server, deviceID, eventWith(events[4])).Code; code != http.StatusOK {
+		t.Fatalf("retry status = %d, want %d", code, http.StatusOK)
+	}
+	if afterRetry := readDevice(t, conn, deviceID); !afterRetry.lastSeenAt.Equal(got.lastSeenAt) {
+		t.Errorf("retry changed last_seen_at from %v to %v", got.lastSeenAt, afterRetry.lastSeenAt)
+	}
+
+	disarm := map[string]string{"event_id": `"a1a1a1a1-0000-4000-8000-000000000006"`, "type": `"disarmed"`, "payload": `{"user_id":3}`}
+	if code := postEvent(t, server, deviceID, eventWith(disarm)).Code; code != http.StatusCreated {
+		t.Fatalf("disarm status = %d, want %d", code, http.StatusCreated)
+	}
+	if got := readDevice(t, conn, deviceID); got.armState != "disarmed" || got.armMode != nil {
+		t.Errorf("arm = %s/%v, want disarmed/nil", got.armState, got.armMode)
+	}
+}
+
 func TestRecordEventSameEventIDOnTwoDevices(t *testing.T) {
 	testStore, conn := newTestStore(t)
 	server := NewServer(testToken, testStore)

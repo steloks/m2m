@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/steloks/m2m/internal/store"
+	"github.com/steloks/m2m/internal/event"
 )
 
 const maxBodyBytes = 64 << 10
@@ -40,7 +40,7 @@ func (server *Server) handleRecordEvent(writer http.ResponseWriter, request *htt
 	}
 	occurredAt, _ := time.Parse(time.RFC3339Nano, req.OccurredAt) // already checked by validate
 
-	created, err := server.store.RecordEvent(request.Context(), store.Event{
+	created, err := server.store.RecordEvent(request.Context(), event.Event{
 		DeviceID:   deviceID,
 		EventID:    req.EventID,
 		Type:       req.Type,
