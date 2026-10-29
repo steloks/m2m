@@ -1,18 +1,23 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/steloks/m2m/internal/store"
 )
 
+type Store interface {
+	RecordEvent(ctx context.Context, event store.Event) (bool, error)
+}
+
 type Server struct {
 	mux     *http.ServeMux
 	handler http.Handler
-	store   *store.Store
+	store   Store
 }
 
-func NewServer(deviceToken string, st *store.Store) *Server {
+func NewServer(deviceToken string, st Store) *Server {
 	s := &Server{mux: http.NewServeMux(), store: st}
 	s.routes()
 	s.handler = requireToken(deviceToken, s.mux)

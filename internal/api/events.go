@@ -14,7 +14,7 @@ const maxBodyBytes = 64 << 10
 type eventRequest struct {
 	EventID    string          `json:"event_id"`
 	Type       string          `json:"type"`
-	OccurredAt time.Time       `json:"occurred_at"`
+	OccurredAt string          `json:"occurred_at"`
 	Payload    json.RawMessage `json:"payload"`
 }
 
@@ -26,26 +26,31 @@ type eventResponse struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
-func (s *Server) handleRecordEvent(w http.ResponseWriter, r *http.Request) {
-	deviceID := r.PathValue("id")
+func (server *Server) handleRecordEvent(writer http.ResponseWriter, request *http.Request) {
+	deviceID := request.PathValue("id")
 
 	var req eventRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes)).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "body must be a valid JSON event")
+	if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, maxBodyBytes)).Decode(&req); err != nil {
+		writeError(writer, http.StatusBadRequest, "body must be a JSON object with fields of the right type")
 		return
 	}
+	if err := req.validate(); err != nil {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	occurredAt, _ := time.Parse(time.RFC3339Nano, req.OccurredAt) // already checked by validate
 
-	created, err := s.store.RecordEvent(r.Context(), store.Event{
+	created, err := server.store.RecordEvent(request.Context(), store.Event{
 		DeviceID:   deviceID,
 		EventID:    req.EventID,
 		Type:       req.Type,
-		OccurredAt: req.OccurredAt,
+		OccurredAt: occurredAt,
 		Payload:    req.Payload,
 		ReceivedAt: time.Now(),
 	})
 	if err != nil {
 		slog.Error("record event", "device_id", deviceID, "event_id", req.EventID, "err", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(writer, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -53,11 +58,11 @@ func (s *Server) handleRecordEvent(w http.ResponseWriter, r *http.Request) {
 	if created {
 		status = http.StatusCreated
 	}
-	writeJSON(w, status, eventResponse{
+	writeJSON(writer, status, eventResponse{
 		DeviceID:   deviceID,
 		EventID:    req.EventID,
 		Type:       req.Type,
-		OccurredAt: req.OccurredAt.UTC().Format(time.RFC3339Nano),
+		OccurredAt: occurredAt.UTC().Format(time.RFC3339Nano),
 		Payload:    req.Payload,
 	})
 }
