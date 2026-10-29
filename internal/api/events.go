@@ -40,7 +40,7 @@ func (server *Server) handleRecordEvent(writer http.ResponseWriter, request *htt
 	}
 	occurredAt, _ := time.Parse(time.RFC3339Nano, req.OccurredAt) // already checked by validate
 
-	created, err := server.store.RecordEvent(request.Context(), event.Event{
+	stored, created, err := server.store.RecordEvent(request.Context(), event.Event{
 		DeviceID:   deviceID,
 		EventID:    req.EventID,
 		Type:       req.Type,
@@ -59,10 +59,10 @@ func (server *Server) handleRecordEvent(writer http.ResponseWriter, request *htt
 		status = http.StatusCreated
 	}
 	writeJSON(writer, status, eventResponse{
-		DeviceID:   deviceID,
-		EventID:    req.EventID,
-		Type:       req.Type,
-		OccurredAt: occurredAt.UTC().Format(time.RFC3339Nano),
-		Payload:    req.Payload,
+		DeviceID:   stored.DeviceID,
+		EventID:    stored.EventID,
+		Type:       stored.Type,
+		OccurredAt: stored.OccurredAt.UTC().Format(time.RFC3339Nano),
+		Payload:    stored.Payload,
 	})
 }

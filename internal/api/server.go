@@ -8,7 +8,7 @@ import (
 )
 
 type Store interface {
-	RecordEvent(ctx context.Context, received event.Event) (bool, error)
+	RecordEvent(ctx context.Context, received event.Event) (event.Event, bool, error)
 }
 
 type Server struct {

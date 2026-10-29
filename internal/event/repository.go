@@ -3,11 +3,13 @@ package event
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type DBTX interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 type Repository struct {
@@ -30,4 +32,13 @@ func (r *Repository) Create(ctx context.Context, e Event) (bool, error) {
 		return false, err
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+func (r *Repository) Get(ctx context.Context, deviceID, eventID string) (Event, error) {
+	stored := Event{DeviceID: deviceID}
+	err := r.db.QueryRow(ctx,
+		`SELECT event_id, type, occurred_at, payload, received_at
+		 FROM events WHERE device_id = $1 AND event_id = $2`,
+		deviceID, eventID).Scan(&stored.EventID, &stored.Type, &stored.OccurredAt, &stored.Payload, &stored.ReceivedAt)
+	return stored, err
 }

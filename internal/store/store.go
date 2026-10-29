@@ -32,9 +32,10 @@ func (s *Store) Close() {
 }
 
 // RecordEvent creates the device if needed, stores the event and, if the event
-// is new, applies it to the device's state, in one transaction. It reports
-// whether the event was new.
-func (s *Store) RecordEvent(ctx context.Context, received event.Event) (bool, error) {
+// is new, applies it to the device's state, in one transaction. It returns the
+// stored event and reports whether it was new.
+func (s *Store) RecordEvent(ctx context.Context, received event.Event) (event.Event, bool, error) {
+	var stored event.Event
 	var created bool
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		devices := device.NewRepository(tx)
@@ -46,7 +47,12 @@ func (s *Store) RecordEvent(ctx context.Context, received event.Event) (bool, er
 			return err
 		}
 
-		created, err = event.NewRepository(tx).Create(ctx, received)
+		events := event.NewRepository(tx)
+		created, err = events.Create(ctx, received)
+		if err != nil {
+			return err
+		}
+		stored, err = events.Get(ctx, received.DeviceID, received.EventID)
 		if err != nil || !created {
 			return err
 		}
@@ -55,5 +61,5 @@ func (s *Store) RecordEvent(ctx context.Context, received event.Event) (bool, er
 		}
 		return devices.Update(ctx, current)
 	})
-	return created, err
+	return stored, created, err
 }

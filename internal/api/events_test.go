@@ -235,6 +235,43 @@ func TestRecordEventDuplicateStoresOnce(t *testing.T) {
 	}
 }
 
+func TestRecordEventDuplicateReturnsStoredEvent(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testStore)
+
+	if code := postEvent(t, server, deviceID, eventBody).Code; code != http.StatusCreated {
+		t.Fatalf("first status = %d, want %d", code, http.StatusCreated)
+	}
+	retry := eventWith(map[string]string{
+		"type":        `"sensor_closed"`,
+		"occurred_at": `"2026-09-29T15:00:00Z"`,
+		"payload":     `{"sensor_id":9}`,
+	})
+	recorder := postEvent(t, server, deviceID, retry)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("retry status = %d, want %d, body %s", recorder.Code, http.StatusOK, recorder.Body)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	want := map[string]any{
+		"device_id":   deviceID,
+		"event_id":    "7c1e9a52-3b0f-4d8e-9a61-2f4b8c0d1e77",
+		"type":        "sensor_opened",
+		"occurred_at": "2026-09-29T14:02:00Z",
+		"payload":     map[string]any{"sensor_id": float64(4)},
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("response = %v, want %v", got, want)
+	}
+	if sensors := readDevice(t, conn, deviceID).openSensors; fmt.Sprint(sensors) != "[4]" {
+		t.Errorf("open sensors = %v, want [4]", sensors)
+	}
+}
+
 type deviceRow struct {
 	lastSeenAt  time.Time
 	armState    string
