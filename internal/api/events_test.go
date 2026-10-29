@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -595,5 +596,73 @@ func TestHistoryEmptyPage(t *testing.T) {
 	}
 	if want := `{"events":[],"next":null}` + "\n"; recorder.Body.String() != want {
 		t.Errorf("body = %s, want %s", recorder.Body, want)
+	}
+}
+
+// postConcurrently sends all bodies to the device at the same time and returns
+// the status codes, in the order of bodies.
+func postConcurrently(t *testing.T, server *Server, deviceID string, bodies []string) []int {
+	t.Helper()
+	codes := make([]int, len(bodies))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for index, body := range bodies {
+		wg.Go(func() {
+			<-start
+			codes[index] = postEvent(t, server, deviceID, body).Code
+		})
+	}
+	close(start)
+	wg.Wait()
+	return codes
+}
+
+func TestRecordEventConcurrentEventsAreAllApplied(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+
+	var bodies []string
+	var wantSensors []int
+	for sensorID := 1; sensorID <= 20; sensorID++ {
+		bodies = append(bodies, eventWith(map[string]string{
+			"event_id": fmt.Sprintf(`"00000000-0000-4000-8000-%012d"`, sensorID),
+			"payload":  fmt.Sprintf(`{"sensor_id":%d}`, sensorID),
+		}))
+		wantSensors = append(wantSensors, sensorID)
+	}
+
+	for index, code := range postConcurrently(t, server, deviceID, bodies) {
+		if code != http.StatusCreated {
+			t.Errorf("sensor %d: status = %d, want %d", index+1, code, http.StatusCreated)
+		}
+	}
+	if got := readDevice(t, conn, deviceID).openSensors; !slices.Equal(got, wantSensors) {
+		t.Errorf("open sensors = %v, want %v", got, wantSensors)
+	}
+}
+
+func TestRecordEventConcurrentDuplicatesStoreOnce(t *testing.T) {
+	testStore, conn := newTestStore(t)
+	deviceID := newDeviceID(t, conn)
+	server := NewServer(testToken, testOfflineThreshold, testStore)
+
+	codes := postConcurrently(t, server, deviceID, slices.Repeat([]string{eventBody}, 20))
+
+	created := 0
+	for _, code := range codes {
+		switch code {
+		case http.StatusCreated:
+			created++
+		case http.StatusOK:
+		default:
+			t.Errorf("status = %d, want %d or %d", code, http.StatusCreated, http.StatusOK)
+		}
+	}
+	if created != 1 {
+		t.Errorf("%d requests got %d, want exactly 1", created, http.StatusCreated)
+	}
+	if count := countEvents(t, conn, deviceID); count != 1 {
+		t.Errorf("stored events = %d, want 1", count)
 	}
 }
